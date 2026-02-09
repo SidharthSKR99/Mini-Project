@@ -33,17 +33,17 @@ router.post('/register', async (req, res) => {
         const salt = await bcrypt.genSalt(12);
         const passwordHash = await bcrypt.hash(password, salt);
 
-        // Create user
+        // Create user (default role is 'user')
         const result = await query(
-            'INSERT INTO users (email, password_hash, name) VALUES ($1, $2, $3) RETURNING id, email, name, tier, created_at',
-            [email, passwordHash, name || null]
+            'INSERT INTO users (email, password_hash, name, role) VALUES ($1, $2, $3, $4) RETURNING id, email, name, tier, role, created_at',
+            [email, passwordHash, name || null, 'user']
         );
 
         const user = result.rows[0];
 
-        // Generate JWT token
+        // Generate JWT token (includes role for admin check)
         const token = jwt.sign(
-            { userId: user.id, email: user.email, tier: user.tier },
+            { userId: user.id, email: user.email, tier: user.tier, role: user.role || 'user' },
             process.env.JWT_SECRET,
             { expiresIn: process.env.JWT_EXPIRES_IN || '7d' }
         );
@@ -76,9 +76,9 @@ router.post('/login', async (req, res) => {
             return res.status(400).json({ error: 'Email and password are required' });
         }
 
-        // Find user
+        // Find user (include role for admin check)
         const result = await query(
-            'SELECT id, email, name, password_hash, tier FROM users WHERE email = $1',
+            'SELECT id, email, name, password_hash, tier, role FROM users WHERE email = $1',
             [email]
         );
 
@@ -97,9 +97,9 @@ router.post('/login', async (req, res) => {
         // Update last login
         await query('UPDATE users SET last_login = CURRENT_TIMESTAMP WHERE id = $1', [user.id]);
 
-        // Generate JWT token
+        // Generate JWT token (includes role for admin check)
         const token = jwt.sign(
-            { userId: user.id, email: user.email, tier: user.tier },
+            { userId: user.id, email: user.email, tier: user.tier, role: user.role || 'user' },
             process.env.JWT_SECRET,
             { expiresIn: process.env.JWT_EXPIRES_IN || '7d' }
         );
@@ -110,7 +110,8 @@ router.post('/login', async (req, res) => {
                 id: user.id,
                 email: user.email,
                 name: user.name,
-                tier: user.tier
+                tier: user.tier,
+                role: user.role || 'user'
             },
             token
         });

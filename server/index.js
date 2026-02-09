@@ -18,6 +18,7 @@ const sentimentRoutes = require('./routes/sentiment');
 const newsRoutes = require('./routes/news');
 const backtestRoutes = require('./routes/backtest');
 const stocksRoutes = require('./routes/stocks');
+const adminRoutes = require('./routes/admin');
 
 // Import database
 const db = require('./db');
@@ -61,6 +62,7 @@ app.use('/api/sentiment', sentimentRoutes);
 app.use('/api/news', newsRoutes);
 app.use('/api/backtest', backtestRoutes);
 app.use('/api/stocks', stocksRoutes);
+app.use('/api/admin', adminRoutes);
 
 // Health check endpoint
 app.get('/api/health', (req, res) => {
@@ -88,7 +90,8 @@ app.get('/api', (req, res) => {
             sentiment: '/api/sentiment',
             news: '/api/news',
             backtest: '/api/backtest',
-            stocks: '/api/stocks'
+            stocks: '/api/stocks',
+            admin: '/api/admin (requires admin role)'
         }
     });
 });
