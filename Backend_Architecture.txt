@@ -1,0 +1,110 @@
+# SentinelQuant — Backend Architecture & Logic Documentation
+
+**Project Name:** SentinelQuant
+**Type:** News-Sentiment-Driven Quantitative Portfolio Management System
+**Backend Runtime:** Node.js (Express.js)
+
+---
+
+## 1. High-Level Overview
+SentinelQuant allows users to build and manage a stock portfolio where asset allocation is dynamically adjusted based on **real-time news sentiment**. The backend serves as the brain, orchestrating data scraping, natural language processing (NLP), and portfolio rebalancing logic.
+
+### Core Philosophy
+1.  **Data Ingestion**: Scrape financial news from multiple sources (NewsAPI, Yahoo Finance, Reddit).
+2.  **Sentiment Analysis**: Process text using **FinBERT** (a financial transformer model) to generate "Bullish" or "Bearish" signals.
+3.  **Quant scoring**: Calculate a **Weighted Sentiment Score (WSS)** for each stock, heavily weighting recent news (Time Decay).
+4.  **Portfolio Rebalancing**: Automatically adjust portfolio weights. Positive sentiment = Overweight; Negative sentiment = Underweight.
+
+---
+
+## 2. Technology Stack
+
+| Component | Technology | Purpose |
+| :--- | :--- | :--- |
+| **Runtime** | **Node.js** | Non-blocking I/O, ideal for handling multiple scraper streams and API requests. |
+| **Framework** | **Express.js** | RESTful API structure, middleware management (Auth, Logging). |
+| **Database** | **PostgreSQL** | Relational data integrity for Users, Trades, and Holdings. |
+| **ORM/Query** | **pg (node-postgres)** | Direct SQL execution for maximum performance and control. |
+| **AI/ML** | **Hugging Face API** | Runs **ProsusAI/finbert** model for sentiment inference. |
+| **Scraping** | **Cheerio, Axios** | HTML parsing and HTTP requests. |
+| **Scheduling** | **Node-Cron** (Planned) | Periodic triggers for scraping and rebalancing. |
+
+---
+
+## 3. Core Modules & Logic
+
+### A. Data Ingestion Layer (`/scrapers`)
+The system aggregates news to form a "universal truth" about market sentiment.
+*   **Sources**:
+    *   **NewsAPI**: Top functionality headlines (Official sources).
+    *   **Yahoo Finance**: Market-moving news (Scraped via Cheerio).
+    *   **Reddit (r/wallstreetbets, r/stocks)**: Retail sentiment (JSON API).
+*   **Entity Detection**:
+    *   Uses a keyword map (`STOCK_KEYWORDS`) to link articles to specific stocks (e.g., "iPhone" -> AAPL).
+    *   *Logic*: `detectStockMentions(text)` scans headings/content and maps them to tracked tickers.
+
+### B. Sentiment Engine (`/services/sentimentService.js`)
+This is the "Brain" of the system.
+1.  **FinBERT Analysis**:
+    *   Each unprocessed article is sent to Hugging Face's Inference API.
+    *   **Model**: `ProsusAI/finbert` (specialized in financial contexts).
+    *   **Output**: Labels (`positive`, `negative`, `neutral`) with confidence scores (0-1).
+2.  **Raw Score Calculation**:
+    *   Formula: `(positive - negative) * (1 - neutral * 0.5)`
+    *   Result is a raw score between `-1` (Extremely Bearish) and `+1` (Extremely Bullish).
+3.  **Weighted Sentiment Score (WSS)**:
+    *   Aggregates all updates for a stock over the last 7 days.
+    *   **Time Decay**: Uses exponential decay function $\exp(-hoursAgo / (24 * days))$.
+    *   *Effect*: Yesterday's news matters significantly less than news from 1 hour ago.
+
+### C. Portfolio Management Engine (`/services/portfolioService.js`)
+Handles the "Quantitative" aspect.
+1.  **Target Weight Calculation**:
+    *   Strategy: **60% Sentiment / 40% Equal Weight**.
+    *   *Logic*: Even with bad sentiment, we never go to 0% (diversification). With great sentiment, we cap at `MAX_POSITION_PERCENT` (risk management).
+2.  **Rebalancing Logic**:
+    *   Compares `Current Weight` vs `Target Weight`.
+    *   **Threshold**: Only trades if the difference > `5%` (to minimize transaction costs/noise).
+    *   *Execution*: Automatically generates `BUY` or `SELL` orders to align the portfolio.
+
+### D. API Layer (`/routes`)
+Standard REST endpoints secured by JWT Authentication.
+*   `POST /auth/login`: Returns JWT token.
+*   `GET /portfolio`: Returns current holdings and performance metrics (Alpha, Beta, Sharpe).
+*   `GET /sentiment`: Returns the live WSS board for all tracked stocks.
+*   `POST /backtest`: Runs logic against historical data to verify strategy.
+
+---
+
+## 4. Database Schema (PostgreSQL)
+
+The database is normalized to ensure data consistency.
+
+1.  **Users**: `id, email, password_hash, role`
+2.  **Stocks**: `id, symbol, name, sector` (Static list of tracked assets)
+3.  **News_Articles**: `id, title, content, url, source, published_at`
+4.  **Sentiment_Scores**:
+    *   Links `Article` <-> `Stock`
+    *   Stores `sentiment`, `confidence`, and `raw_score`.
+5.  **Portfolio_Holdings**:
+    *   `user_id`, `stock_id`, `shares`, `current_value`, `weight`
+    *   Tracks the live state of every user's portfolio.
+6.  **Transactions**:
+    *   Immutable ledger of every Buy/Sell event, including the `reason` (e.g., "Rebalance: WSS dropped to -0.4").
+
+---
+
+## 5. Security & Performance
+
+*   **Rate Limiting**: `express-rate-limit` caps requests to 100/15min to prevent DDOS.
+*   **Helmet**: Sets HTTP headers to prevent XSS and Clickjacking.
+*   **Connection Pooling**: `pg.Pool` manages DB connections efficiently, scaling up/down with load.
+*   **Error Handling**: Centralized middleware catches async errors and prevents server crashes.
+
+---
+
+## 6. Key Differentiators (For Presentation)
+1.  **Real-Time NLP**: Doesn't just rely on price; it reads the news before the price moves.
+2.  **Dynamic Rebalancing**: The portfolio isn't static. It "breathes" with the market mood.
+3.  **Quant Rigor**: Uses exponential time decay, ensuring stale news doesn't pollute decisions.
+4.  **Separation of Concerns**: Scrapers are decoupled from analysis; analysis is decoupled from trading execution.
